@@ -1,6 +1,15 @@
 # deskew-text
 
-Straighten scanned images of text.
+Automatically straighten scanned images of text.
+
+Before
+
+![before](screenshots/before.png)
+
+After
+
+![after](screenshots/after.png)
+
 
 ### How to run
 
