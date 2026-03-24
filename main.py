@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+import argparse
 import math
 
 def drawGrid(img, hRes = 32, vRes = 32, stroke = 1):
@@ -38,33 +39,54 @@ def rotateImg(img, angle):
     rows, cols = img.shape
     center = ((cols-1)/2.0, (rows-1)/2.0)
     M = cv.getRotationMatrix2D(center, angle, 1)
-    return cv.warpAffine(img, M, (cols, rows))
+    return cv.warpAffine(img, M, (cols, rows), borderValue=(255, 255, 255))
+
+def cropImg(img):
+    _, img = cv.threshold(img, 162, 255, 0)
+    img = cv.bitwise_not(img)
+    whitePoints = np.argwhere(img)
+    x, y, w, h = cv.boundingRect(whitePoints)
+    img = img[x:x+w, y:y+h]
+    img = cv.bitwise_not(img)
+    return img
 
 def main():
-    img = cv.imread("ref.jpg", cv.IMREAD_GRAYSCALE)
+    parser = argparse.ArgumentParser(
+        prog="deskew-text",
+        description="Straighten and clean up scanned images of text")
+
+    parser.add_argument('-i', '--input', required=True)
+    parser.add_argument('-o', '--output', required=True)
+
+    args = parser.parse_args()
+
+    img = cv.imread(args.input, cv.IMREAD_GRAYSCALE)
     assert img is not None, "file could not be read"
 
+    # calculate straightness scores for a range of rotation adjustments
+    angles = []
     maxScore = -math.inf
     bestAngle = 0
-    for angle in np.arange(-2, 2, 0.01):
+    for angle in np.arange(-10, 10, 0.1):
         rotated = rotateImg(img, angle)
         varX, varY = calculateStraightness(rotated)
         score = varX + varY
-        print("angle={:.2f} score={}".format(angle, score))
+        angles.append((score, angle))
 
-        if score > maxScore:
-            maxScore = score
-            bestAngle = angle
-
-    print("best angle: {:.2f}".format(bestAngle))
-    print("max score: {:.2f}".format(maxScore))
+    # find angles with top N scores and use the median of these angles
+    angles.sort(reverse=True)
+    bestAngles = []
+    N = 7
+    for _, angle in angles[:N]:
+        bestAngles.append(angle)
+    bestAngles.sort()
+    bestAngle = bestAngles[N//2]
 
     rotated = rotateImg(img, bestAngle)
-    #rotated = img
 
-    drawGrid(rotated)
+    cropped = cropImg(rotated)
 
-    cv.imshow("debug", rotated); cv.waitKey(0)
+    cv.imwrite(args.output, cropped)
 
 if __name__ == '__main__':
     main()
