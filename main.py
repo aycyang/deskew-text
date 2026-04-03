@@ -121,6 +121,19 @@ def avgImg(a, b, tx = 0, ty = 0):
     c[btx:btx+bw, bty:bty+bh] += b // 2
     return c
 
+def invertAndThreshold(img, threshold = 90):
+    img = cv.bitwise_not(img)
+    _, img = cv.threshold(img, threshold, 255, 0)
+    return img
+
+def boxConnectedComponents(img):
+    N, markers = cv.connectedComponents(img, ltype=cv.CV_16U)
+    boxes = []
+    for i in range(1, N):
+        points = np.argwhere(markers == i)
+        boxes.append(cv.boundingRect(points))
+    return boxes
+
 def main():
     parser = argparse.ArgumentParser(
         prog="deskew-text",
@@ -139,15 +152,11 @@ def main():
     deskew1 = coarseDeskew(orig)
     deskew1_color = cv.cvtColor(deskew1, cv.COLOR_GRAY2RGB)
 
-    _, deskew1_thresh = cv.threshold(deskew1, 180, 255, 0)
-    deskew1_thresh = cv.bitwise_not(deskew1_thresh)
-    N, markers = cv.connectedComponents(deskew1_thresh, ltype=cv.CV_16U)
-    classifications = [None] * N
-    for i in range(1, N):
-        points = np.argwhere(markers == i)
-        x, y, w, h = cv.boundingRect(points)
+    deskew1_boxes = boxConnectedComponents(invertAndThreshold(deskew1))
+
+    for x, y, w, h in deskew1_boxes:
         patch_grayscale = deskew1[x:x+w, y:y+h]
-        patch_thresh = deskew1_thresh[x:x+w, y:y+h]
+        patch_thresh = invertAndThreshold(patch_grayscale)
         centroid, avgMag = calculateCentroidAndAverageMagnitudes(patch_thresh)
         if avgMag == 0:
             continue
@@ -171,7 +180,6 @@ def main():
         if len(sortedCharMatches) > 0:
             bestMatch = sortedCharMatches[0]
             charLabel, cx, cy = bestMatch[2:]
-            classifications[i] = bestMatch
             cv.putText(deskew1_color, str(charLabel), (int(cy), int(cx)), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv.rectangle(deskew1_color, (y, x), (y+h, x+w), (0, 0, 255), 2)
 
