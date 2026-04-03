@@ -165,13 +165,14 @@ def main():
             _, numUnmatchedPixels, numMatchedPixels = hist
             matchPct = 2 * numMatchedPixels / (2 * numMatchedPixels + numUnmatchedPixels)
             if matchPct > 0.7:
-                charMatches.append((matchPct, scaleFactor, charLabel))
+                charMatches.append((matchPct, scaleFactor, charLabel, x - tx, y - ty))
 
         sortedCharMatches = list(reversed(sorted(charMatches)))
         if len(sortedCharMatches) > 0:
-            charLabel = sortedCharMatches[0][2]
-            classifications[i] = sortedCharMatches[0]
-            cv.putText(deskew1_color, str(charLabel), (y, x - 5), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            bestMatch = sortedCharMatches[0]
+            charLabel, cx, cy = bestMatch[2:]
+            classifications[i] = bestMatch
+            cv.putText(deskew1_color, str(charLabel), (int(cy), int(cx)), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             cv.rectangle(deskew1_color, (y, x), (y+h, x+w), (0, 0, 255), 2)
 
     #drawGrid(img)
