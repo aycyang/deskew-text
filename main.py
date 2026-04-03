@@ -146,16 +146,16 @@ def main():
 
     charMap = loadCharMap()
 
-    orig = cv.imread(args.input, cv.IMREAD_GRAYSCALE)
-    assert orig is not None, "file could not be read"
+    img = cv.imread(args.input, cv.IMREAD_GRAYSCALE)
+    assert img is not None, "file could not be read"
 
-    deskew1 = coarseDeskew(orig)
-    deskew1_color = cv.cvtColor(deskew1, cv.COLOR_GRAY2RGB)
+    img = coarseDeskew(img)
+    img_color = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
-    deskew1_boxes = boxConnectedComponents(invertAndThreshold(deskew1))
+    boxes = boxConnectedComponents(invertAndThreshold(img))
 
-    for x, y, w, h in deskew1_boxes:
-        patch_grayscale = deskew1[x:x+w, y:y+h]
+    for x, y, w, h in boxes:
+        patch_grayscale = img[x:x+w, y:y+h]
         patch_thresh = invertAndThreshold(patch_grayscale)
         centroid, avgMag = calculateCentroidAndAverageMagnitudes(patch_thresh)
         if avgMag == 0:
@@ -166,10 +166,8 @@ def main():
             if scaleFactor > 2 or scaleFactor < 1:
                 continue
             resized_patch = cv.resize(patch_grayscale, None, fx=scaleFactor, fy=scaleFactor, interpolation=cv.INTER_LINEAR)
-            _, resized_patch_thresh = cv.threshold(resized_patch, 180, 255, 0)
-            resized_patch_thresh = cv.bitwise_not(resized_patch_thresh)
             tx, ty = charCentroid - scaleFactor * centroid
-            avg = avgImg(char, resized_patch_thresh, int(tx), int(ty))
+            avg = avgImg(char, invertAndThreshold(resized_patch), int(tx), int(ty))
             hist, _ = np.histogram(avg, bins=3)
             _, numUnmatchedPixels, numMatchedPixels = hist
             matchPct = 2 * numMatchedPixels / (2 * numMatchedPixels + numUnmatchedPixels)
@@ -180,11 +178,11 @@ def main():
         if len(sortedCharMatches) > 0:
             bestMatch = sortedCharMatches[0]
             charLabel, cx, cy = bestMatch[2:]
-            cv.putText(deskew1_color, str(charLabel), (int(cy), int(cx)), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv.rectangle(deskew1_color, (y, x), (y+h, x+w), (0, 0, 255), 2)
+            cv.putText(img_color, str(charLabel), (int(cy), int(cx)), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            cv.rectangle(img_color, (y, x), (y+h, x+w), (0, 0, 255), 2)
 
     #drawGrid(img)
-    cv.imshow("debug", deskew1_color)
+    cv.imshow("debug", img_color)
     cv.waitKey()
     return
 
