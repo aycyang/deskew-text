@@ -101,9 +101,9 @@ def calculateCentroidAndAverageMagnitudes(img):
     avgMag = np.sum(mags) / n
     return centroid, avgMag
 
-def avgImg(a, b, tx = 0, ty = 0):
-    aw, ah = a.shape
-    bw, bh = b.shape
+def avgImg(a, b, ty = 0, tx = 0):
+    ah, aw = a.shape
+    bh, bw = b.shape
     atx = 0
     aty = 0
     btx = 0
@@ -116,9 +116,9 @@ def avgImg(a, b, tx = 0, ty = 0):
         aty = -ty
     else:
         bty = ty
-    c = np.zeros((max(aw + atx, bw + btx), max(ah + aty, bh + bty)), dtype=np.uint8)
-    c[atx:atx+aw, aty:aty+ah] += a // 2
-    c[btx:btx+bw, bty:bty+bh] += b // 2
+    c = np.zeros((max(ah + aty, bh + bty), max(aw + atx, bw + btx)), dtype=np.uint8)
+    c[aty:aty+ah, atx:atx+aw] += a // 2
+    c[bty:bty+bh, btx:btx+bw] += b // 2
     return c
 
 def invertAndThreshold(img, threshold = 90):
@@ -133,6 +133,33 @@ def boxConnectedComponents(img):
         points = np.argwhere(markers == i)
         boxes.append(cv.boundingRect(points))
     return boxes
+
+def recognizeChar(img, box, charMap):
+    y, x, h, w = box
+    patch_grayscale = img[y:y+h, x:x+w]
+    patch_thresh = invertAndThreshold(patch_grayscale)
+    centroid, avgMag = calculateCentroidAndAverageMagnitudes(patch_thresh)
+    if avgMag == 0:
+        return None
+    charMatches = []
+    for charLabel, (char, charCentroid, charMag) in charMap.items():
+        scaleFactor = charMag / avgMag
+        if scaleFactor < 1 or 2 < scaleFactor:
+            continue
+        resized_patch = cv.resize(patch_grayscale, None, fx=scaleFactor, fy=scaleFactor, interpolation=cv.INTER_LINEAR)
+        ty, tx = charCentroid - scaleFactor * centroid
+        avg = avgImg(char, invertAndThreshold(resized_patch), int(ty), int(tx))
+        hist, _ = np.histogram(avg, bins=3)
+        _, numUnmatchedPixels, numMatchedPixels = hist
+        matchPct = 2 * numMatchedPixels / (2 * numMatchedPixels + numUnmatchedPixels)
+        if matchPct > 0.7:
+            charMatches.append((matchPct, scaleFactor, charLabel, y - ty, x - tx))
+
+    sortedCharMatches = list(reversed(sorted(charMatches)))
+    if len(sortedCharMatches) == 0:
+        return None
+    matchPct, scaleFactor, label, y, x = sortedCharMatches[0]
+    return label, y, x
 
 def main():
     parser = argparse.ArgumentParser(
@@ -154,34 +181,16 @@ def main():
 
     boxes = boxConnectedComponents(invertAndThreshold(img))
 
-    for x, y, w, h in boxes:
-        patch_grayscale = img[x:x+w, y:y+h]
-        patch_thresh = invertAndThreshold(patch_grayscale)
-        centroid, avgMag = calculateCentroidAndAverageMagnitudes(patch_thresh)
-        if avgMag == 0:
+    for box in boxes:
+        result = recognizeChar(img, box, charMap)
+        if result is None:
             continue
-        charMatches = []
-        for charLabel, (char, charCentroid, charMag) in charMap.items():
-            scaleFactor = charMag / avgMag
-            if scaleFactor > 2 or scaleFactor < 1:
-                continue
-            resized_patch = cv.resize(patch_grayscale, None, fx=scaleFactor, fy=scaleFactor, interpolation=cv.INTER_LINEAR)
-            tx, ty = charCentroid - scaleFactor * centroid
-            avg = avgImg(char, invertAndThreshold(resized_patch), int(tx), int(ty))
-            hist, _ = np.histogram(avg, bins=3)
-            _, numUnmatchedPixels, numMatchedPixels = hist
-            matchPct = 2 * numMatchedPixels / (2 * numMatchedPixels + numUnmatchedPixels)
-            if matchPct > 0.7:
-                charMatches.append((matchPct, scaleFactor, charLabel, x - tx, y - ty))
+        label, ly, lx = result
+        cv.putText(img_color, str(label), (int(lx), int(ly)),
+            cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        y, x, h, w = box
+        cv.rectangle(img_color, (x, y), (x+w, y+h), (0, 0, 255), 2)
 
-        sortedCharMatches = list(reversed(sorted(charMatches)))
-        if len(sortedCharMatches) > 0:
-            bestMatch = sortedCharMatches[0]
-            charLabel, cx, cy = bestMatch[2:]
-            cv.putText(img_color, str(charLabel), (int(cy), int(cx)), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            cv.rectangle(img_color, (y, x), (y+h, x+w), (0, 0, 255), 2)
-
-    #drawGrid(img)
     cv.imshow("debug", img_color)
     cv.waitKey()
     return
