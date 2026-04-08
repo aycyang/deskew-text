@@ -159,7 +159,35 @@ def recognizeChar(img, box, charMap):
     if len(sortedCharMatches) == 0:
         return None
     matchPct, scaleFactor, label, y, x = sortedCharMatches[0]
-    return label, y, x
+    return scaleFactor, label, y, x
+
+def findOptimalTransform(a, b, tr, sr):
+    h, w = a.shape
+    transforms = []
+    for s in np.arange(1-sr, 1+sr, 0.002):
+        for dy in range(2 * tr + 1):
+            for dx in range(2 * tr + 1):
+                patch = b
+                patch = cv.resize(patch, None, fx=s, fy=s)
+                patch = invertAndThreshold(patch)
+                avg = avgImg(patch, a, dy - tr, dx - tr)
+                hist, _ = np.histogram(avg, bins=3)
+                _, numUnmatchedPixels, numMatchedPixels = hist
+                matchPct = (2 * numMatchedPixels - numUnmatchedPixels) / avg.size
+                tdx = (dx - tr) / s
+                tdy = (dy - tr) / s
+                transforms.append((matchPct, tdx, tdy, s))
+    matchPct, dx, dy, s = list(reversed(sorted(transforms)))[0]
+    return dx, dy, s
+
+def compositeImg(base, img, x, y, s):
+    img = cv.resize(img, None, fx=s, fy=s)
+    h, w, _ = img.shape
+    base[y:y+h, x:x+w] = img
+
+def debug(img):
+    cv.imshow("debug", img)
+    cv.waitKey()
 
 def main():
     parser = argparse.ArgumentParser(
@@ -180,16 +208,32 @@ def main():
     img_color = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
 
     boxes = boxConnectedComponents(invertAndThreshold(img))
+    
+    padding = 2
+    boxes = list(map(lambda b: (b[0]-padding, b[1]-padding, b[2]+2*padding, b[3]+2*padding), boxes))
 
     for box in boxes:
         result = recognizeChar(img, box, charMap)
         if result is None:
             continue
-        label, ly, lx = result
-        cv.putText(img_color, str(label), (int(lx), int(ly)),
-            cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        scaleFactor, label, ly, lx = result
         y, x, h, w = box
-        cv.rectangle(img_color, (x, y), (x+w, y+h), (0, 0, 255), 2)
+        cv.rectangle(img_color, (x, y), (x+w, y+h), (0, 0, 255), 1)
+        # get char
+        char, _, _ = charMap[label]
+        charHeight, charWidth = char.shape
+
+        # get patch around (lx, ly)
+        pya = int(ly)
+        pxa = int(lx)
+        pyb = int(ly) + charHeight
+        pxb = int(lx) + charWidth
+        patch = img[pya:pyb, pxa:pxb]
+        patch = cv.resize(patch, None, fx=scaleFactor, fy=scaleFactor)
+
+        dx, dy, s = findOptimalTransform(char, patch, 2, .04)
+        compositeImg(img_color, cv.cvtColor(char, cv.COLOR_GRAY2RGB),
+            int(lx + dx), int(ly + dy), 1/scaleFactor)
 
     cv.imshow("debug", img_color)
     cv.waitKey()
