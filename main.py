@@ -199,120 +199,12 @@ def main():
 
     args = parser.parse_args()
 
-    charMap = loadCharMap()
-
     img = cv.imread(args.input, cv.IMREAD_GRAYSCALE)
     assert img is not None, "file could not be read"
 
     img = coarseDeskew(img)
-
-    boxes = boxConnectedComponents(invertAndThreshold(img))
-
-    # TODO filter out boxes that aren't near the median size
-
-    boxes.sort(key=lambda b: b[2] * b[3])
-    boxes = boxes[len(boxes)//4*3-100:len(boxes)//4*3+100]
-
-    img_boxes = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    for y, x, h, w in boxes:
-        cv.rectangle(img_boxes, (x, y), (x+w, y+h), (0, 0, 255), 2)
-    debug(img_boxes)
-
-    padding = 2
-    boxes = list(map(lambda b: (b[0]-padding, b[1]-padding, b[2]+2*padding, b[3]+2*padding), boxes))
-
-    img_color = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    points = []
-    for box in boxes:
-        result = recognizeChar(img, box, charMap)
-        if result is None:
-            continue
-        scaleFactor, label, ly, lx = result
-        # get char
-        char, _, _ = charMap[label]
-        charHeight, charWidth = char.shape
-
-        # get patch around (lx, ly)
-        pya = int(ly)
-        pxa = int(lx)
-        pyb = int(ly) + charHeight
-        pxb = int(lx) + charWidth
-        patch = img[pya:pyb, pxa:pxb]
-        patch = cv.resize(patch, None, fx=scaleFactor, fy=scaleFactor)
-
-        dx, dy, s = findOptimalTransform(char, patch, 2, .04)
-        compositeImg(img_color, cv.cvtColor(char, cv.COLOR_GRAY2RGB),
-            int(lx + dx), int(ly + dy), 1/scaleFactor)
-
-        points.append((lx + dx, ly + dy))
-    debug(img_color)
-
-    points = np.array(points).reshape(-1, 1, 2).astype(np.float32)
-
-    lines = cv.HoughLinesPointSet(points, lines_max=100, threshold=5,
-                                  min_rho=0, max_rho=max(img.shape),
-                                  rho_step=1, min_theta=-math.pi/8,
-                                  max_theta=math.pi/2+math.pi/8,
-                                  theta_step=math.pi/360)
-    img_color = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    for line in lines:
-        votes, rho, theta = line.reshape(-1)
-        # slope of the radial line: a / b
-        a = math.cos(theta)
-        b = math.sin(theta)
-        x0 = rho * a
-        y0 = rho * b
-        # slope of the perpendicular hough line: -b / a
-        x1 = x0 - 1000 * b
-        y1 = y0 + 1000 * a
-        x2 = x0 + 1000 * b
-        y2 = y0 - 1000 * a
-        p1 = np.array((x1, y1)).astype(np.uint64)
-        p2 = np.array((x2, y2)).astype(np.uint64)
-        cv.line(img_color, p1, p2, color=(0, 0, 255), thickness=int(votes))
-
-    for point in points:
-        x, y = point.reshape(-1)
-        cv.circle(img_color, center=np.array((x, y), dtype=np.uint64), radius=5, color=(255, 0, 0), thickness=2)
-
-    debug(img_color)
-
-    epsilon = math.pi / 32
-    horizontalLines = list(filter(lambda line: math.fabs(line[0][2] - math.pi / 2) < epsilon, lines))
-    verticalLines = list(filter(lambda line: math.fabs(line[0][2]) < epsilon, lines))
-    sumHorizontalThetas = sum(map(lambda line: line[0][2] - math.pi/2, horizontalLines))
-    sumVerticalThetas = sum(map(lambda line: line[0][2], verticalLines))
-    if len(horizontalLines) > 0:
-        avgHTheta = sumHorizontalThetas / len(horizontalLines)
-        print("avg h. theta:", avgHTheta)
-    if len(verticalLines) > 0:
-        avgVTheta = sumVerticalThetas / len(verticalLines)
-        print("avg v. theta:", avgVTheta)
-    avgTheta = (sumHorizontalThetas + sumVerticalThetas) / (len(horizontalLines) + len(verticalLines))
-    print("fine adjustment:", avgTheta)
-
-    img_color = cv.cvtColor(img, cv.COLOR_GRAY2RGB)
-    for line in (*horizontalLines, *verticalLines):
-        votes, rho, theta = line.reshape(-1)
-        # slope of the radial line: a / b
-        a = math.cos(theta)
-        b = math.sin(theta)
-        x0 = rho * a
-        y0 = rho * b
-        # slope of the perpendicular hough line: -b / a
-        x1 = x0 - 1000 * b
-        y1 = y0 + 1000 * a
-        x2 = x0 + 1000 * b
-        y2 = y0 - 1000 * a
-        p1 = np.array((x1, y1)).astype(np.uint64)
-        p2 = np.array((x2, y2)).astype(np.uint64)
-        cv.line(img_color, p1, p2, color=(0, 0, 255), thickness=2)
-
-    for point in points:
-        x, y = point.reshape(-1)
-        cv.circle(img_color, center=np.array((x, y), dtype=np.uint64), radius=5, color=(255, 0, 0), thickness=2)
-
-    debug(img_color)
+    _, img = cv.threshold(img, 127, 255, 0)
+    img = cropImg(img)
 
     cv.imwrite(args.output, img)
 
